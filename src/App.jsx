@@ -1,189 +1,104 @@
+import React, { useState } from 'react'
+import { LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer } from 'recharts'
+import html2canvas from 'html2canvas'
 
-import React, { useState, useRef } from "react";
-import html2pdf from "html2pdf.js";
-import domtoimage from "dom-to-image";
-import { ResponsiveContainer, ForceGraph2D } from "react-force-graph";
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer as ChartContainer } from "recharts";
+const defaultSignals = [
+  { label: "Alias Names", value: 1 },
+  { label: "SSN Validity", value: 1 },
+  { label: "Recent Address Match", value: 1 },
+  { label: "Known Employer", value: 1 },
+  { label: "Convictions", value: -2 },
+  { label: "SSN Fraud", value: -3 }
+]
 
-const SIGNALS = [
-  { id: "criminal_felony_recent", label: "Recent Felony" },
-  { id: "criminal_felony_old", label: "Old Felony" },
-  { id: "criminal_misdemeanor", label: "Misdemeanor" },
-  { id: "alias_mismatch", label: "Alias Mismatch" },
-  { id: "employment_gap", label: "Employment Gap" },
-  { id: "education_unverified", label: "Education Unverified" },
-  { id: "address_instability", label: "Address Instability" },
-  { id: "ssn_mismatch", label: "SSN Mismatch" },
-  { id: "jurisdiction_delay", label: "Jurisdiction Delay" },
-  { id: "multiple_employers", label: "Multiple Employers" },
-  { id: "pattern_reform", label: "Pattern of Reform" }
-];
+const App = () => {
+  const [signals, setSignals] = useState(defaultSignals)
+  const [selected, setSelected] = useState(signals.map(s => true))
+  const [data, setData] = useState(generateChartData(signals.map(s => s.value)))
 
-const weights = {
-  criminal_felony_recent: 8,
-  criminal_felony_old: 4,
-  criminal_misdemeanor: 3,
-  alias_mismatch: 5,
-  employment_gap: 4,
-  education_unverified: 6,
-  address_instability: 3,
-  ssn_mismatch: 7,
-  jurisdiction_delay: 2,
-  multiple_employers: 2,
-  pattern_reform: -5
-};
-
-const syntheticProfiles = [
-  {
-    candidateId: "Candidate_Synth_001",
-    selectedFlags: ["criminal_felony_old", "employment_gap", "alias_mismatch", "pattern_reform"]
-  },
-  {
-    candidateId: "Candidate_Synth_002",
-    selectedFlags: ["criminal_felony_recent", "ssn_mismatch", "education_unverified"]
-  },
-  {
-    candidateId: "Candidate_Synth_003",
-    selectedFlags: ["criminal_misdemeanor", "multiple_employers", "address_instability"]
+  function generateChartData(vals) {
+    return vals.map((v, i) => ({
+      index: i + 1,
+      risk: vals.slice(0, i + 1).reduce((a, b) => a + b, 0)
+    }))
   }
-];
 
-export default function SignalGraphUI() {
-  const [candidateId, setCandidateId] = useState("Candidate_001");
-  const [selectedFlags, setSelectedFlags] = useState([]);
-  const [feedback, setFeedback] = useState("");
-  const graphRef = useRef();
+  function toggle(index) {
+    const next = [...selected]
+    next[index] = !next[index]
+    const activeValues = signals.map((s, i) => next[i] ? s.value : 0)
+    setSelected(next)
+    setData(generateChartData(activeValues))
+  }
 
-  const toggleFlag = (id) => {
-    setSelectedFlags((prev) =>
-      prev.includes(id) ? prev.filter((f) => f !== id) : [...prev, id]
-    );
-  };
+  function calcScore() {
+    return signals.reduce((sum, s, i) => selected[i] ? sum + s.value : sum, 0)
+  }
 
-  const buildGraphData = () => {
-    const nodes = [
-      { id: candidateId, name: candidateId, color: "#60a5fa", type: "entity" },
-      ...selectedFlags.map((flag) => ({
-        id: flag,
-        name: SIGNALS.find((s) => s.id === flag).label,
-        color: "#facc15",
-        type: "signal"
-      }))
-    ];
+  function exportPNG() {
+    html2canvas(document.querySelector("#graph")).then(canvas => {
+      const link = document.createElement("a")
+      link.download = "signal-graph.png"
+      link.href = canvas.toDataURL()
+      link.click()
+    })
+  }
 
-    const links = selectedFlags.map((flag) => ({
-      source: candidateId,
-      target: flag,
-      value: Math.abs(weights[flag] || 1)
-    }));
+  function exportCSV() {
+    const csv = ["Label,Value,Selected"]
+    signals.forEach((s, i) => {
+      csv.push(`"${s.label}",${s.value},${selected[i]}`)
+    })
+    const blob = new Blob([csv.join("\n")], { type: "text/csv" })
+    const link = document.createElement("a")
+    link.href = URL.createObjectURL(blob)
+    link.download = "signal-data.csv"
+    link.click()
+  }
 
-    return { nodes, links };
-  };
-
-  const calculateScore = () => {
-    const score = selectedFlags.reduce((sum, flag) => sum + (weights[flag] || 0), 0);
-    if (score >= 10) setFeedback("⚠️ High risk: Proceed with caution.");
-    else if (score >= 1) setFeedback("⚖️ Moderate risk: Review context.");
-    else setFeedback("✅ Low risk: Signs of stability or reform.");
-    return score;
-  };
-
-  const loadSyntheticProfile = (index) => {
-    const profile = syntheticProfiles[index];
-    setCandidateId(profile.candidateId);
-    setSelectedFlags(profile.selectedFlags);
-  };
-
-  const handleCSVExport = () => {
-    const rows = [["Candidate ID", "Flags"], [candidateId, selectedFlags.join(",")]];
-    const csvContent = rows.map((e) => e.join(",")).join("\n");
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    const link = document.createElement("a");
-    link.setAttribute("href", URL.createObjectURL(blob));
-    link.setAttribute("download", `${candidateId}_profile.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
-  const handlePDFExport = () => {
-    domtoimage.toPng(graphRef.current).then((dataUrl) => {
-      const img = new Image();
-      img.src = dataUrl;
-      const container = document.getElementById("pdf-summary");
-      container.appendChild(img);
-      setTimeout(() => {
-        html2pdf().set({ margin: 0.5, filename: `${candidateId}_report.pdf`, html2canvas: { scale: 2 } }).from(container).save();
-        container.removeChild(img);
-      }, 1000);
-    });
-  };
-
-  const scores = syntheticProfiles.map((profile) => ({
-    name: profile.candidateId,
-    score: profile.selectedFlags.reduce((sum, flag) => sum + (weights[flag] || 0), 0)
-  }));
+  function loadSynthetic() {
+    const synth = [
+      { label: "Fake Employer", value: -2 },
+      { label: "VOE Match", value: 2 },
+      { label: "Alias Warning", value: -1 },
+      { label: "SSN Verified", value: 2 },
+      { label: "Eviction Record", value: -3 }
+    ]
+    setSignals(synth)
+    setSelected(synth.map(() => true))
+    setData(generateChartData(synth.map(s => s.value)))
+  }
 
   return (
-    <div style={{ padding: 24 }}>
-      <h2>Signal Graph UI</h2>
-      <input
-        value={candidateId}
-        onChange={(e) => setCandidateId(e.target.value)}
-        placeholder="Candidate ID"
-        style={{ padding: 8, marginBottom: 12 }}
-      />
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10 }}>
-        {SIGNALS.map((signal) => (
-          <label key={signal.id}>
-            <input
-              type="checkbox"
-              checked={selectedFlags.includes(signal.id)}
-              onChange={() => toggleFlag(signal.id)}
-            />
-            {" "}{signal.label}
-          </label>
+    <div>
+      <h1>Signal Graph Risk Engine</h1>
+      <p>Score: <strong>{calcScore()}</strong></p>
+      <div>
+        {signals.map((s, i) => (
+          <div key={i}>
+            <input type="checkbox" checked={selected[i]} onChange={() => toggle(i)} />
+            {s.label} ({s.value})
+          </div>
         ))}
       </div>
-      <div style={{ marginTop: 12 }}>
-        <button onClick={() => loadSyntheticProfile(0)}>Load Profile 1</button>{" "}
-        <button onClick={() => loadSyntheticProfile(1)}>Load Profile 2</button>{" "}
-        <button onClick={() => loadSyntheticProfile(2)}>Load Profile 3</button>{" "}
-        <button onClick={handleCSVExport}>Export CSV</button>{" "}
-        <button onClick={handlePDFExport}>Export PDF</button>
-        <div style={{ fontSize: 18, marginTop: 8 }}>
-          Score: <strong>{calculateScore()}</strong> – {feedback}
-        </div>
-      </div>
-      <div ref={graphRef} style={{ height: 400, marginTop: 20 }}>
+      <div style={{ height: 300, background: "#fff", marginTop: 20 }} id="graph">
         <ResponsiveContainer width="100%" height="100%">
-          <ForceGraph2D
-            graphData={buildGraphData()}
-            nodeLabel={(node) => node.name}
-            nodeAutoColorBy="type"
-            linkWidth={(link) => link.value}
-            nodeCanvasObject={(node, ctx) => {
-              ctx.fillStyle = node.color;
-              ctx.beginPath();
-              ctx.arc(node.x, node.y, 8, 0, 2 * Math.PI, false);
-              ctx.fill();
-              ctx.fillStyle = "black";
-              ctx.fillText(node.name, node.x + 12, node.y + 4);
-            }}
-          />
-        </ResponsiveContainer>
-      </div>
-      <div id="pdf-summary" style={{ marginTop: 40 }}>
-        <h3>Synthetic Profile Risk Comparison</h3>
-        <ChartContainer width="100%" height={300}>
-          <BarChart data={scores}>
-            <XAxis dataKey="name" />
+          <LineChart data={data}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey="index" />
             <YAxis />
             <Tooltip />
-            <Bar dataKey="score" fill="#6366f1" />
-          </BarChart>
-        </ChartContainer>
+            <Line type="monotone" dataKey="risk" stroke="#8884d8" />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+      <div style={{ marginTop: 20 }}>
+        <button onClick={exportPNG}>Export PNG</button>
+        <button onClick={exportCSV}>Export CSV</button>
+        <button onClick={loadSynthetic}>Load Synthetic Profile</button>
       </div>
     </div>
-  );
+  )
 }
+
+export default App
