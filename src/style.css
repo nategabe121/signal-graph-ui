@@ -1,8 +1,6 @@
+
 body {
+  margin: 0;
   font-family: Arial, sans-serif;
-  margin: 20px;
-  background: #f4f4f4;
-}
-button {
-  margin: 5px;
+  background-color: #f4f4f4;
 }
